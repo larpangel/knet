@@ -2,7 +2,13 @@ const SLUR_PATTERN=/(?:^|[^a-z0-9])(?:n[\W_]*[i1!][\W_]*[g69][\W_]*[g69][\W_]*(?
 const censorAme=(s)=>s.replace(/\bame(?=-chan\b|\b)/gi,"***");
 const accountNameOK=n=>typeof n==="string"&&/^[A-Za-z0-9]{1,16}$/.test(n);
 const accountPasswordOK=p=>typeof p==="string"&&p.length>=8&&p.length<=128;
-async function derivePassword(password,salt){const material=await crypto.subtle.importKey("raw",new TextEncoder().encode(password),"PBKDF2",false,["deriveBits"]);const bytes=await crypto.subtle.deriveBits({name:"PBKDF2",salt:Uint8Array.from(salt.match(/../g).map(x=>parseInt(x,16))),iterations:210000,hash:"SHA-256"},material,256);return [...new Uint8Array(bytes)].map(v=>v.toString(16).padStart(2,"0")).join("")}
+async function derivePassword(password,salt){
+ if(typeof salt!=="string"||!/^[0-9a-f]{32}$/i.test(salt))throw new Error("INVALID_SALT");
+ const bytes=Uint8Array.from(salt.match(/.{2}/g),x=>parseInt(x,16));
+ const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(password),{name:"PBKDF2"},false,["deriveBits"]);
+ const derived=await crypto.subtle.deriveBits({name:"PBKDF2",salt:bytes,iterations:210000,hash:"SHA-256"},key,256);
+ return [...new Uint8Array(derived)].map(x=>x.toString(16).padStart(2,"0")).join("");
+}
 const saltHex=()=>[...crypto.getRandomValues(new Uint8Array(16))].map(v=>v.toString(16).padStart(2,"0")).join("");
 const secureEqual=(a,b)=>{if(typeof a!=="string"||typeof b!=="string"||a.length!==b.length)return false;let x=0;for(let i=0;i<a.length;i++)x|=a.charCodeAt(i)^b.charCodeAt(i);return x===0};
 const out=(v,s=200,h={})=>new Response(JSON.stringify(v),{status:s,headers:{"Content-Type":"application/json","Cache-Control":"no-store",...h}});
@@ -35,17 +41,21 @@ export class ChatRoom {
   const existing=this.db.exec("SELECT * FROM accounts WHERE username=? COLLATE NOCASE",name).toArray()[0];
   if(d.action==="register"&&existing)return out({error:"Username already registered. Choose Log in if it's yours."},409);
   if(d.action==="login"&&!existing){this.db.exec("INSERT OR REPLACE INTO auth_attempts(fp,count,since) VALUES(?,?,?)",fp,current.count+1,current.since);return out({error:"Incorrect username or password."},401)}
+  let stage="hash";
   try{
    if(d.action==="register"){
     const salt=saltHex(),hash=await derivePassword(password,salt),id=crypto.randomUUID();
+    stage="database-insert";
     try{this.db.exec("INSERT INTO accounts(id,username,salt,password_hash,created) VALUES(?,?,?,?,?)",id,name,salt,hash,t)}catch{return out({error:"Username already registered. Choose Log in if it's yours."},409)}
+    stage="session-update";
     this.db.exec("UPDATE sessions SET name=?,account_id=? WHERE id=?",name,id,uid);
    }else{
     const hash=await derivePassword(password,existing.salt);
     if(!secureEqual(hash,existing.password_hash)){this.db.exec("INSERT OR REPLACE INTO auth_attempts(fp,count,since) VALUES(?,?,?)",fp,current.count+1,current.since);return out({error:"Incorrect username or password."},401)}
+    stage="session-update";
     this.db.exec("UPDATE sessions SET name=?,account_id=? WHERE id=?",existing.username,existing.id,uid);
    }
-  }catch(e){console.error("JINE account operation failed",e?.name||"unknown");return out({error:"Account service error. Please try again or contact the chat moderator."},500)}
+  }catch(e){console.error("JINE account failed",stage,e?.name||"Error",e?.message||"");return out({error:"Account operation failed ("+stage+"). Please report this code to the moderator.",code:"ACCOUNT_"+stage.toUpperCase().replaceAll("-","_")},500)}
   this.db.exec("DELETE FROM auth_attempts WHERE fp=?",fp);
   return out({ok:true});
  }
