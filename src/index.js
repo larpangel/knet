@@ -25,5 +25,21 @@ export class ChatRoom {
 async function counts(env){let j={youtube:null,twitch:null,twitter:null,discord:null};const tasks=[(async()=>{for(const host of ["https://discord.com/api/v10/invites/pchan?with_counts=true","https://discord.com/api/invites/pchan?with_counts=true"]){try{const r=await fetch(host,{headers:{"Accept":"application/json","User-Agent":"KNetStats/1.0 (public invite counts)"},signal:AbortSignal.timeout(8000)});if(!r.ok)continue;const v=(await r.json()).approximate_member_count;if(Number.isFinite(v)){j.discord=v;break}}catch{}}})()];
 if(env.YOUTUBE_API_KEY&&env.YOUTUBE_CHANNEL_ID)tasks.push((async()=>{try{const r=await fetch("https://www.googleapis.com/youtube/v3/channels?part=statistics&id="+encodeURIComponent(env.YOUTUBE_CHANNEL_ID)+"&key="+encodeURIComponent(env.YOUTUBE_API_KEY),{signal:AbortSignal.timeout(5000)});if(r.ok)j.youtube=Number((await r.json()).items?.[0]?.statistics?.subscriberCount) || null}catch{}})());
 if(env.TWITCH_CLIENT_ID&&env.TWITCH_APP_TOKEN&&env.TWITCH_USER_ID)tasks.push((async()=>{try{const r=await fetch("https://api.twitch.tv/helix/channels/followers?broadcaster_id="+env.TWITCH_USER_ID,{headers:{"Client-ID":env.TWITCH_CLIENT_ID,Authorization:"Bearer "+env.TWITCH_APP_TOKEN},signal:AbortSignal.timeout(5000)});if(r.ok)j.twitch=(await r.json()).total??null}catch{}})());
-if(env.X_BEARER_TOKEN&&env.X_USER_ID)tasks.push((async()=>{try{const r=await fetch("https://api.x.com/2/users/"+env.X_USER_ID+"?user.fields=public_metrics",{headers:{Authorization:"Bearer "+env.X_BEARER_TOKEN},signal:AbortSignal.timeout(5000)});if(r.ok)j.twitter=(await r.json()).data?.public_metrics?.followers_count??null}catch{}})());await Promise.all(tasks);return j;}
+if(env.X_BEARER_TOKEN&&env.X_USER_ID)tasks.push((async()=>{try{const r=await fetch("https://api.x.com/2/users/"+env.X_USER_ID+"?user.fields=public_metrics",{headers:{Authorization:"Bearer "+env.X_BEARER_TOKEN},signal:AbortSignal.timeout(5000)});if(r.ok)j.twitter=(await r.json()).data?.public_metrics?.followers_count??null}catch{}})());await Promise.all(tasks);
+// Fallback to public profile metadata; no credentials required.
+// A third-party service may be unavailable or return stale data, so never invent a count.
+const profiles={youtube:"https://www.youtube.com/@larpangel",twitch:"https://www.twitch.tv/larpangel",twitter:"https://x.com/kawaiiangel"};
+await Promise.all(Object.entries(profiles).filter(([platform])=>j[platform]===null).map(async([platform,url])=>{
+  try{
+    const response=await fetch("https://pulse.walls.sh/profile?url="+encodeURIComponent(url),{headers:{Accept:"application/json"},signal:AbortSignal.timeout(6500)});
+    if(!response.ok)return;
+    const data=await response.json();
+    const expected=platform==="twitter"?"kawaiiangel":"larpangel";
+    const name=String(data.handle||"").replace(/^@/,"").toLowerCase();
+    const kind=String(data.platform||"").toLowerCase();
+    const count=data.followers;
+    if(name===expected&&(kind===platform||(platform==="twitter"&&kind==="x"))&&Number.isSafeInteger(count)&&count>=0)j[platform]=count;
+  }catch{}
+}));
+return j;}
 export default {async fetch(r,env,ctx){const path=new URL(r.url).pathname;if(path==="/api/social"){const match=await caches.default.match(r);if(match)return match;const result=out(await counts(env),200,{"Cache-Control":"public, max-age=300"});ctx.waitUntil(caches.default.put(r,result.clone()));return result}if(path.startsWith("/api/")){const ip=r.headers.get("CF-Connecting-IP")||"";if(!env.IP_HASH_KEY)return out({error:"IP_HASH_KEY must be configured"},503);const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(env.IP_HASH_KEY),{name:"HMAC",hash:"SHA-256"},false,["sign"]);const hash=await crypto.subtle.sign("HMAC",key,new TextEncoder().encode(ip));const fp=[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,"0")).join("");const headers=new Headers(r.headers);headers.set("x-knet-fingerprint",fp);return env.KNET_ROOM.get(env.KNET_ROOM.idFromName("main")).fetch(new Request(r,{headers}));}return env.ASSETS.fetch(r)}};
