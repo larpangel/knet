@@ -3,10 +3,10 @@ const censorAme=(s)=>s.replace(/\bame(?=-chan\b|\b)/gi,"***");
 const accountNameOK=n=>typeof n==="string"&&/^[A-Za-z0-9]{1,16}$/.test(n);
 const accountPasswordOK=p=>typeof p==="string"&&p.length>=8&&p.length<=128;
 async function derivePassword(password,salt){
- if(typeof salt!=="string"||!/^[0-9a-f]{32}$/i.test(salt))throw new Error("INVALID_SALT");
- const bytes=Uint8Array.from(salt.match(/.{2}/g),x=>parseInt(x,16));
+ const legacy=typeof salt==="string"&&/^[0-9a-f]{32}$/i.test(salt);const current=typeof salt==="string"&&/^v2:[0-9a-f]{32}$/i.test(salt);if(!legacy&&!current)throw new Error("INVALID_SALT");
+ const bytes=Uint8Array.from((current?salt.slice(3):salt).match(/.{2}/g),x=>parseInt(x,16));
  const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(password),{name:"PBKDF2"},false,["deriveBits"]);
- const derived=await crypto.subtle.deriveBits({name:"PBKDF2",salt:bytes,iterations:210000,hash:"SHA-256"},key,256);
+ const derived=await crypto.subtle.deriveBits({name:"PBKDF2",salt:bytes,iterations:current?100000:210000,hash:"SHA-256"},key,256);
  return [...new Uint8Array(derived)].map(x=>x.toString(16).padStart(2,"0")).join("");
 }
 const saltHex=()=>[...crypto.getRandomValues(new Uint8Array(16))].map(v=>v.toString(16).padStart(2,"0")).join("");
@@ -44,7 +44,7 @@ export class ChatRoom {
   let stage="hash";
   try{
    if(d.action==="register"){
-    const salt=saltHex(),hash=await derivePassword(password,salt),id=crypto.randomUUID();
+    const salt="v2:"+saltHex(),hash=await derivePassword(password,salt),id=crypto.randomUUID();
     stage="database-insert";
     try{this.db.exec("INSERT INTO accounts(id,username,salt,password_hash,created) VALUES(?,?,?,?,?)",id,name,salt,hash,t)}catch{return out({error:"Username already registered. Choose Log in if it's yours."},409)}
     stage="session-update";
