@@ -1,4 +1,4 @@
-const SLUR_PATTERN=/(?:n[\W_]*[i1!][\W_]*[g69][\W_]*[g69][\W_]*(?:[e3][\W_]*r|[a@])|f[\W_]*[a@4][\W_]*[g69][\W_]*[g69][\W_]*[o0][\W_]*[t7]|k[\W_]*[i1!][\W_]*k[\W_]*[e3]|ch[\W_]*[i1!][\W_]*nk)/i;
+const SLUR_PATTERN=/(?:^|[^a-z0-9])?:n[\W_]*[i1!][\W_]*[g69][\W_]*[g69][\W_]*(?:[e3][\W_]*r|[a@])|f[\W_]*[a@4][\W_]*[g69][\W_]*[g69][\W_]*[o0][\W_]*[t7]|k[\W_]*[i1!][\W_]*k[\W_]*[e3]|ch[\W_]*[i1!][\W_]*nk(?=$|[^a-z0-9])/i;
 const censorAme=(s)=>s.replace(/\bame(?=-chan\b|\b)/gi,"***");
 const out=(v,s=200,h={})=>new Response(JSON.stringify(v),{status:s,headers:{"Content-Type":"application/json","Cache-Control":"no-store",...h}});
 const cookie=(r,n)=>(r.headers.get("cookie")||"").split(";").map(x=>x.trim()).find(x=>x.startsWith(n+"="))?.slice(n.length+1);
