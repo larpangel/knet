@@ -23,25 +23,29 @@ export class ChatRoom {
  const uid=cookie(r,"jine_session"),user=uid?this.db.exec("SELECT * FROM sessions WHERE id=? AND expires>?",uid,t).toArray()[0]:null;if(user&&fp){const color=`hsl(${parseInt(fp.slice(0,8),16)%360} 74% 44%)`;if(user.shade!==color){this.db.exec("UPDATE sessions SET shade=? WHERE id=?",color,uid);user.shade=color;}}if(!user)return out({error:"Login required"},401);if(banned)return out({error:"Access denied"},403);
  if(path==="/api/me"&&r.method==="GET"){const a=user.account_id?this.db.exec("SELECT username FROM accounts WHERE id=?",user.account_id).toArray()[0]:null;return out({name:a?.username||"",needsName:!a,authenticated:!!a})}
  if(path==="/api/account"&&r.method==="POST"){
-  const d=await r.json().catch(()=>({}));const name=typeof d.username==="string"?d.username.trim():"",pass=d.password;
-  if(!accountNameOK(name)||!accountPasswordOK(pass))return out({error:"Use 1–16 letters/numbers for your username and a password of at least 10 characters (max 128)."},400);
-  if(!fp)return out({error:"Cannot identify connection for login protection"},503);
+  const d=await r.json().catch(()=>null);
+  if(!d||typeof d!=="object"||!["register","login"].includes(d.action))return out({error:"Choose Create account or Log in."},400);
+  const name=typeof d.username==="string"?d.username.trim():"",password=d.password;
+  if(!accountNameOK(name))return out({error:"Username must be 1–16 letters or numbers."},400);
+  if(!accountPasswordOK(password))return out({error:"Password must be 10–128 characters."},400);
+  if(!fp)return out({error:"Network identity unavailable; please try again."},503);
   const attempt=this.db.exec("SELECT count,since FROM auth_attempts WHERE fp=?",fp).toArray()[0];
-  if(attempt&&t-attempt.since<900000&&attempt.count>=8)return out({error:"Too many attempts; wait 15 minutes"},429);
-  const start=attempt&&t-attempt.since<900000?attempt:{count:0,since:t};
-  this.db.exec("INSERT OR REPLACE INTO auth_attempts(fp,count,since) VALUES(?,?,?)",fp,start.count+1,start.since);
+  if(attempt&&t-attempt.since<900000&&attempt.count>=8)return out({error:"Too many login attempts. Try again in 15 minutes."},429);
+  const current=attempt&&t-attempt.since<900000?attempt:{count:0,since:t};
   const existing=this.db.exec("SELECT * FROM accounts WHERE username=? COLLATE NOCASE",name).toArray()[0];
-  if(d.action==="register"){
-    if(existing)return out({error:"Username taken. Sign in if this is your account."},409);
-    const salt=saltHex(),hash=await derivePassword(pass,salt),id=crypto.randomUUID();
-    try{this.db.exec("INSERT INTO accounts(id,username,salt,password_hash,created) VALUES(?,?,?,?,?)",id,name,salt,hash,t)}catch{return out({error:"Username taken"},409)}
+  if(d.action==="register"&&existing)return out({error:"Username already registered. Choose Log in if it's yours."},409);
+  if(d.action==="login"&&!existing){this.db.exec("INSERT OR REPLACE INTO auth_attempts(fp,count,since) VALUES(?,?,?)",fp,current.count+1,current.since);return out({error:"Incorrect username or password."},401)}
+  try{
+   if(d.action==="register"){
+    const salt=saltHex(),hash=await derivePassword(password,salt),id=crypto.randomUUID();
+    try{this.db.exec("INSERT INTO accounts(id,username,salt,password_hash,created) VALUES(?,?,?,?,?)",id,name,salt,hash,t)}catch{return out({error:"Username already registered. Choose Log in if it's yours."},409)}
     this.db.exec("UPDATE sessions SET name=?,account_id=? WHERE id=?",name,id,uid);
-  }else if(d.action==="login"){
-    if(!existing)return out({error:"Incorrect username or password"},401);
-    const hash=await derivePassword(pass,existing.salt);
-    if(!secureEqual(hash,existing.password_hash))return out({error:"Incorrect username or password"},401);
+   }else{
+    const hash=await derivePassword(password,existing.salt);
+    if(!secureEqual(hash,existing.password_hash)){this.db.exec("INSERT OR REPLACE INTO auth_attempts(fp,count,since) VALUES(?,?,?)",fp,current.count+1,current.since);return out({error:"Incorrect username or password."},401)}
     this.db.exec("UPDATE sessions SET name=?,account_id=? WHERE id=?",existing.username,existing.id,uid);
-  }else return out({error:"Invalid action"},400);
+   }
+  }catch(e){console.error("JINE account operation failed",e?.name||"unknown");return out({error:"Account service error. Please try again or contact the chat moderator."},500)}
   this.db.exec("DELETE FROM auth_attempts WHERE fp=?",fp);
   return out({ok:true});
  }
