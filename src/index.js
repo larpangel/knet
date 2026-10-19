@@ -1,7 +1,7 @@
 const SLUR_PATTERN=/(?:^|[^a-z0-9])(?:n[\W_]*[i1!][\W_]*[g69][\W_]*[g69][\W_]*(?:[e3][\W_]*r|[a@])|f[\W_]*[a@4][\W_]*[g69][\W_]*[g69][\W_]*[o0][\W_]*[t7]|k[\W_]*[i1!][\W_]*k[\W_]*[e3]|ch[\W_]*[i1!][\W_]*nk)(?=$|[^a-z0-9])/i;
 const censorAme=(s)=>s.replace(/\bame(?=-chan\b|\b)/gi,"***");
 const accountNameOK=n=>typeof n==="string"&&/^[A-Za-z0-9]{1,16}$/.test(n);
-const accountPasswordOK=p=>typeof p==="string"&&p.length>=10&&p.length<=128;
+const accountPasswordOK=p=>typeof p==="string"&&p.length>=8&&p.length<=128;
 async function derivePassword(password,salt){const material=await crypto.subtle.importKey("raw",new TextEncoder().encode(password),"PBKDF2",false,["deriveBits"]);const bytes=await crypto.subtle.deriveBits({name:"PBKDF2",salt:Uint8Array.from(salt.match(/../g).map(x=>parseInt(x,16))),iterations:210000,hash:"SHA-256"},material,256);return [...new Uint8Array(bytes)].map(v=>v.toString(16).padStart(2,"0")).join("")}
 const saltHex=()=>[...crypto.getRandomValues(new Uint8Array(16))].map(v=>v.toString(16).padStart(2,"0")).join("");
 const secureEqual=(a,b)=>{if(typeof a!=="string"||typeof b!=="string"||a.length!==b.length)return false;let x=0;for(let i=0;i<a.length;i++)x|=a.charCodeAt(i)^b.charCodeAt(i);return x===0};
@@ -27,11 +27,11 @@ export class ChatRoom {
   if(!d||typeof d!=="object"||!["register","login"].includes(d.action))return out({error:"Choose Create account or Log in."},400);
   const name=typeof d.username==="string"?d.username.trim():"",password=d.password;
   if(!accountNameOK(name))return out({error:"Username must be 1–16 letters or numbers."},400);
-  if(!accountPasswordOK(password))return out({error:"Password must be 10–128 characters."},400);
+  if(!accountPasswordOK(password))return out({error:"Password must be 8–128 characters."},400);
   if(!fp)return out({error:"Network identity unavailable; please try again."},503);
   const attempt=this.db.exec("SELECT count,since FROM auth_attempts WHERE fp=?",fp).toArray()[0];
-  if(attempt&&t-attempt.since<900000&&attempt.count>=8)return out({error:"Too many login attempts. Try again in 15 minutes."},429);
-  const current=attempt&&t-attempt.since<900000?attempt:{count:0,since:t};
+  if(attempt&&t-attempt.since<60000&&attempt.count>=8)return out({error:"Too many login attempts. Try again in 1 minute."},429);
+  const current=attempt&&t-attempt.since<60000?attempt:{count:0,since:t};
   const existing=this.db.exec("SELECT * FROM accounts WHERE username=? COLLATE NOCASE",name).toArray()[0];
   if(d.action==="register"&&existing)return out({error:"Username already registered. Choose Log in if it's yours."},409);
   if(d.action==="login"&&!existing){this.db.exec("INSERT OR REPLACE INTO auth_attempts(fp,count,since) VALUES(?,?,?)",fp,current.count+1,current.since);return out({error:"Incorrect username or password."},401)}
