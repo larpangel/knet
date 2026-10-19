@@ -31,10 +31,5 @@
       "bucket_name": "knet-chat-files"
     }
   ],
-  "secrets": {
-    "required": [
-      "IP_HASH_KEY",
-      "ADMIN_PASSWORD"
-    ]
-  }
+  "keep_vars": true
 }
