@@ -14,15 +14,15 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 
 const names = ["IP_HASH_KEY", "ADMIN_PASSWORD"];
-const missing = names.filter((name) => !process.env[name]);
-if (missing.length) {
-  console.error(
-    "Missing Cloudflare BUILD secrets: " + missing.join(", ") + ".\n" +
-    "Add these under Workers & Pages -> k-net -> Settings -> Builds -> Variables and Secrets " +
-    "(not only Runtime Variables and Secrets), then redeploy.\n" +
-    "Build deploy command must be: node scripts/deploy.mjs"
-  );
-  process.exit(1);
+const available = names.filter((n) => !!process.env[n]);
+if (available.length !== names.length) {
+  console.log("Build secrets not both present. Deploying normally; existing runtime secrets are preserved by keep_vars.");
+  const { spawnSync } = await import("node:child_process");
+  const result = spawnSync("npx", ["--yes", "wrangler", "deploy"], {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  process.exit(result.status ?? 1);
 }
 
 const dir = await mkdtemp(join(tmpdir(), "knet-deploy-"));
