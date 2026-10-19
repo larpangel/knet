@@ -56,6 +56,10 @@ export class ChatRoom {
   const current=attempt&&t-attempt.since<60000?attempt:{count:0,since:t};
   const existing=this.db.exec("SELECT * FROM accounts WHERE username=? COLLATE NOCASE",name).toArray()[0];
   if(d.action==="register"&&existing)return out({error:"Username already registered. Choose Log in if it's yours."},409);
+  if(d.action==="register"){
+   const guest=this.db.exec("SELECT id FROM sessions WHERE lower(name)=lower(?) AND is_temp=1 AND expires>? AND id<>? LIMIT 1",name,t,uid).toArray();
+   if(guest.length)return out({error:"Username currently used by a temporary guest. Please choose another."},409);
+  }
   if(d.action==="login"&&!existing){this.db.exec("INSERT OR REPLACE INTO auth_attempts(fp,count,since) VALUES(?,?,?)",fp,current.count+1,current.since);return out({error:"Incorrect username or password."},401)}
   let stage="hash";
   try{
