@@ -40,3 +40,15 @@ Chat messages and visit counters are stored in a SQLite-backed Durable Object. F
 The chat's ordinary entrance passphrase is intended for game fans, not as a strong security boundary. Chat messaging uses sessions and rate limits, but does not provide comprehensive spam, illegal content or malware scanning; moderate file uploads and messages accordingly.
 
 YouTube/Twitch/X counter API integration requires their respective environment secrets; missing counts are marked unavailable, never fabricated.
+
+
+## Cloudflare Git build: secret-safe deployment (October 2026)
+
+The **runtime** Worker settings and **build environment** settings are separate. When a Git-connected build runs `npx wrangler deploy`, Wrangler may not see a Worker secret during its `secrets.required` verification, resulting in `The following required secrets have not been set` even if you added the names in the runtime dashboard.
+
+1. In Cloudflare Workers & Pages → **k-net** → Settings → **Builds** (or Build configuration) → **Variables and Secrets**, add `IP_HASH_KEY` and `ADMIN_PASSWORD` as **encrypted build secrets**. Use the same values as the Worker runtime secrets. These values must never be committed to GitHub.
+2. Set **Deploy command** to `node scripts/deploy.mjs` (replacing `npx wrangler deploy`). Leave Build command `echo "Static website"` and root `/`.
+3. Redeploy. The script validates the two build secrets, writes a permission-restricted temporary JSON secrets file, runs `npx wrangler deploy --secrets-file ...` to upload secrets with the Worker code, then deletes the file even on failure.
+4. The new deployment should list both secrets among bindings. Verify the live chat endpoints before announcing success.
+
+Do not paste secret values into build/deploy command strings or check them into the repository. `secrets.required` stays in Wrangler configuration to fail closed when secrets cannot be deployed.
